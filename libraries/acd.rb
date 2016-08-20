@@ -39,128 +39,166 @@ module Acd
     actions(:mount, :unmount, :sync)
 
     def acd_cli_settings_path
-      ::File.join(::File.expand_path('~'), '.acdcli')
+      ::File.join(::Dir.home("#{self.user}"), '.cache', 'acd_cli')
     end
   end
 
   class Provider < Chef::Provider
     include Poise
-    include PoisePython::PythonCommandMixin
     include PoisePython::Resources::PythonPackage
+    require 'mixlib/shellout'
 
     provides(:acd)
 
     def action_mount
-      install_acd_cli
-      oauth_data
-
-      cmd = [
-        'acd_cli',
-        'mount',
-        new_resource.mount_opts,
-        new_resource.path,
-      ]
-
       notifying_block do
-        directory new_resource.path do
-          recursive true
-          user new_resource.user
-          group new_resource.group
-          mode 0775
-        end
-      end
-
-      unless node['filesystem'].attribute?('ACDFuse') && node['filesystem']['ACDFuse']['mount'] == new_resource.path
-        python_shell_out!(
-          cmd,
-          user: new_resource.user,
-          group: new_resource.group,
-          environment: (python_from_parent new_resource),
-        )
+        install_acd_cli
+        generate_oauth_data_file
+        mount
       end
     end
 
     def action_unmount
       install_acd_cli
+      unmount
+    end
 
+    def action_sync
+      install_acd_cli
+      sync
+    end
+
+    private
+
+    def sync
+      cmd = [
+        'acd_cli',
+        'sync',
+      ]
+
+      sync = Mixlib::ShellOut.new(
+        cmd,
+        user: new_resource.user,
+        group: new_resource.group,
+      )
+
+      sync.run_command
+    end
+
+    def mount
+      notifying_block do
+        cmd = [
+          'acd_cli',
+          'mount',
+          '--uid', Etc.getpwnam("#{new_resource.user}")[:uid],
+          '--gid', Etc.getgrnam("#{new_resource.group}")[:gid],
+          new_resource.mount_opts,
+          new_resource.path,
+        ]
+
+        directory new_resource.path do
+          recursive true
+          user new_resource.user
+          group new_resource.group
+          # Match permissions which acdcli sets when mount is run.
+          # acdcli seems to remap the permissions to 0776 for some reason.
+          mode 0776
+        end
+
+        unless node['filesystem'].attribute?('ACDFuse') && node['filesystem']['ACDFuse']['mount'] == new_resource.path
+          mount = Mixlib::ShellOut.new(
+            cmd.join(' '),
+            user: new_resource.user,
+            group: new_resource.group,
+          )
+
+          mount.run_command
+          if mount.error? && mount.exitstatus == 3
+            sync
+            mount.run_command
+          end
+
+        end
+      end
+    end
+
+    def unmount
       cmd = [
         'acd_cli',
         'unmount',
         new_resource.path,
       ]
 
-      python_shell_out!(
+      unmount = Mixlib::ShellOut.new(
         cmd,
         user: new_resource.user,
         group: new_resource.group,
       )
+
+      unmount.run_command
     end
-
-    def action_sync
-      install_acd_cli
-
-      cmd = [
-        'acd_cli',
-        'sync',
-      ]
-
-      python_shell_out!(
-        cmd,
-        user: new_resource.user,
-        group: new_resource.group,
-      )
-    end
-
-    private
 
     def install_acd_cli
       notifying_block do
         package %w{fuse}
-      end
 
-      python_package 'acd_cli' do
-        python_from_parent new_resource
-        name "#{ node['acd']['from_git'] ? 'git+https://github.com/yadayada/acd_cli.git' : 'acdcli' }"
-        action [:install, :upgrade]
+        python_package 'acdcli' do
+          python_from_parent new_resource
+          user new_resource.user
+          version '0.3.2'
+          action :upgrade
+        end
       end
     end
 
-
-    # Create a new oauth_data if missing, or if the file is over one hour old.
-    def oauth_data
+    # Return token as hash for defined username and password.
+    # We install mechanize here rather than with `gem` in the metadata
+    # as mechanize depends on build-essential to compile the native parts.
+    def oauth_token
       notifying_block do
         include_recipe 'build-essential'
 
         chef_gem 'mechanize' do
           compile_time true
         end
+      end
 
-        oauth_data = Acd::OauthHandler.new(
-          email: new_resource.amazon_email,
-          password: new_resource.amazon_password,
-        )
-        oauth_data_file = ::File.join(new_resource.acd_cli_settings_path, 'oauth_data')
+      oauth_data ||= Acd::OauthHandler.new(
+        email: new_resource.amazon_email,
+        password: new_resource.amazon_password,
+      )
 
+      oauth_data.token
+    end
+
+    # Create a new oauth_data if missing, or if the file is over one hour old.
+    def generate_oauth_data_file
+      oauth_data_file = ::File.join(new_resource.acd_cli_settings_path, 'oauth_data')
+      oauth_data_content = oauth_token.to_json
+
+      notifying_block do
         directory new_resource.acd_cli_settings_path do
+          recursive true
           mode 0750
           owner new_resource.user
           group new_resource.group
         end
 
         file oauth_data_file do
-          content oauth_data.token.to_json
+          content oauth_data_content
           mode 0640
           owner new_resource.user
           group new_resource.group
           sensitive true
           only_if do
             if ::File.exist?(oauth_data_file)
-              (Time.now - File.stat(oauth_data_file)).to_i > 3600
+              (::Time.now - ::File.stat(oauth_data_file).mtime).to_i > 3600
             else
               true
             end
           end
         end
+
       end
     end
 
