@@ -39,7 +39,7 @@ module Acd
     actions(:mount, :unmount, :sync)
 
     def acd_cli_settings_path
-      ::File.join(::Dir.home("#{self.user}"), '.cache', 'acd_cli')
+      ::File.join(::Dir.home(self.user), '.cache', 'acd_cli')
     end
   end
 
@@ -90,8 +90,8 @@ module Acd
         cmd = [
           'acd_cli',
           'mount',
-          '--uid', Etc.getpwnam("#{new_resource.user}")[:uid],
-          '--gid', Etc.getgrnam("#{new_resource.group}")[:gid],
+          '--uid', Etc.getpwnam(new_resource.user)[:uid],
+          '--gid', Etc.getgrnam(new_resource.group)[:gid],
           new_resource.mount_opts,
           new_resource.path,
         ]
