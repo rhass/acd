@@ -34,6 +34,8 @@ module Acd
     attribute(:amazon_password, kind_of: String)
     attribute(:group, kind_of: String, default: 'root')
     attribute(:mount_opts, kind_of: [Array, NilClass])
+    attribute(:oauth_endpoint, kind_of: String, default: 'https://tensile-runway-92512.appspot.com/')
+    attribute(:remount, kind_of: [TrueClass, FalseClass], default: true)
     attribute(:user, kind_of: String, default: 'root')
 
     actions(:mount, :unmount, :sync)
@@ -46,7 +48,6 @@ module Acd
   class Provider < Chef::Provider
     include Poise
     include PoisePython::Resources::PythonPackage
-    require 'mixlib/shellout'
 
     provides(:acd)
 
@@ -54,48 +55,48 @@ module Acd
       notifying_block do
         install_acd_cli
         generate_oauth_data_file
-        mount
+        mount_drive
       end
     end
 
     def action_unmount
       install_acd_cli
-      unmount
+      unmount_drive
     end
 
     def action_sync
       install_acd_cli
-      sync
+      sync_drive
+    end
+
+    def mount_cmd
+      cmd ||= [
+        'acd_cli',
+        'mount',
+        '--uid', Etc.getpwnam(new_resource.user).uid,
+        '--gid', Etc.getgrnam(new_resource.group).gid,
+        "#{new_resource.mount_opts.join(' ')}",
+        new_resource.path,
+      ]
     end
 
     private
 
-    def sync
+    def sync_drive
       cmd = [
         'acd_cli',
         'sync',
       ]
 
-      sync = Mixlib::ShellOut.new(
+      poise_shell_out!(
         cmd,
         user: new_resource.user,
         group: new_resource.group,
       )
-
-      sync.run_command
     end
 
-    def mount
+    def mount_drive
       notifying_block do
-        cmd = [
-          'acd_cli',
-          'mount',
-          '--uid', Etc.getpwnam(new_resource.user)[:uid],
-          '--gid', Etc.getgrnam(new_resource.group)[:gid],
-          new_resource.mount_opts,
-          new_resource.path,
-        ]
-
         directory new_resource.path do
           recursive true
           user new_resource.user
@@ -105,37 +106,42 @@ module Acd
           mode 0776
         end
 
+        if new_resource.remount
+          create_mount_script
+
+          mount new_resource.path do
+            device '/usr/local/bin/acdmount'
+            fstype 'fuse'
+            options '_netdev'
+            action :enable
+          end
+        end
+
         unless node['filesystem'].attribute?('ACDFuse') && node['filesystem']['ACDFuse']['mount'] == new_resource.path
-          mount = Mixlib::ShellOut.new(
-            cmd.join(' '),
+          sync_drive
+
+          poise_shell_out(
+            mount_cmd.join(' '),
             user: new_resource.user,
             group: new_resource.group,
           )
-
-          mount.run_command
-          if mount.error? && mount.exitstatus == 3
-            sync
-            mount.run_command
-          end
-
         end
       end
     end
 
-    def unmount
+    def unmount_drive
       cmd = [
         'acd_cli',
         'unmount',
         new_resource.path,
       ]
 
-      unmount = Mixlib::ShellOut.new(
+      poise_shell_out!(
         cmd,
         user: new_resource.user,
         group: new_resource.group,
       )
 
-      unmount.run_command
     end
 
     def install_acd_cli
@@ -166,6 +172,7 @@ module Acd
       oauth_data ||= Acd::OauthHandler.new(
         email: new_resource.amazon_email,
         password: new_resource.amazon_password,
+        oauth_endpoint: new_resource.oauth_endpoint,
       )
 
       oauth_data.token
@@ -199,6 +206,13 @@ module Acd
           end
         end
 
+      end
+    end
+
+    def create_mount_script
+      file '/usr/local/bin/acdmount' do
+        content "#!/usr/bin/env bash\n\n#{mount_cmd.join(' ')}\n"
+        mode 0755
       end
     end
 

@@ -16,7 +16,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 module Acd
   class OauthHandler
     require 'json'
@@ -33,7 +32,7 @@ module Acd
       require 'mechanize'
       @email ||= args[:email]
       @password ||= args[:password]
-      @oauth_endpoint ||= args.fetch('endpoint', 'https://tensile-runway-92512.appspot.com/')
+      @oauth_endpoint ||= args[:oauth_endpoint]
       @token ||= authenticate
     end
 
@@ -60,11 +59,19 @@ module Acd
       form.field(name: 'email').value = @email
       form.field(name: 'password').value = @password
       page2 = agent.submit(form)
+
+      if !page2.form(name: 'consent-form').nil?
+        raise "Automatic Amazon app authorization consent is not yet supported.\nPlease login to #{@oauth_endpoint} and authorize the Amazon application access to your drive before running this cookbook."
+      end
+
+      response_page = page2
+
       begin
-        response = JSON.parse(page2.body)
+        response = JSON.parse(response_page.body)
         raise response['error_decription'] if response.has_key?('error')
       rescue JSON::ParserError
-        raise 'Invalid amazon.com credentials.'
+        puts response_page.body
+        raise 'Invalid amazon.com credentials or unexpected response from server.'
       end
 
       response
