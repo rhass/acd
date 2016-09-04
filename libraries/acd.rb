@@ -37,6 +37,7 @@ module Acd
     attribute(:oauth_endpoint, kind_of: String, default: 'https://tensile-runway-92512.appspot.com/')
     attribute(:remount, kind_of: [TrueClass, FalseClass], default: true)
     attribute(:user, kind_of: String, default: 'root')
+    attribute(:version, kind_of: String, default: '0.3.2')
 
     actions(:mount, :unmount, :sync)
 
@@ -151,7 +152,7 @@ module Acd
         python_package 'acdcli' do
           python_from_parent new_resource
           user new_resource.user
-          version '0.3.2'
+          version new_resource.version
           action :upgrade
         end
       end

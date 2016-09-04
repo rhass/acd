@@ -37,6 +37,7 @@ to see the code please see the [authorization documentation from acd_cli](https:
 - `group`                 - Group to use for acdcli commands. _Default: `root`_
 - `acd_cli_cache_path`    - Custom cache directory path.
 - `acd_cli_settings_path` - Custom settings path. _Default: ~/.cache/acd_cli_
+- `version`               - Version of acd_cli to install from pypi. _Default: '0.3.2'_
 
 #### Actions
 - `:mount`
