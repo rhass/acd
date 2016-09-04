@@ -30,6 +30,7 @@ to see the code please see the [authorization documentation from acd_cli](https:
 #### Attributes
 
 - `path`                  - Mount path. _Name Attribute_
+- `oauth_endpoint`        - OAuth public endpoint to use for getting the oauth token. _Default: 'https://tensile-runway-92512.appspot.com/'_
 - `amazon_email`          - E-Mail Address used for your Amazon Drive account. _Required_
 - `amazon_password`       - Password for Amazaon Drive account. _Required_
 - `mount_opts`            - acdcli mount options.
@@ -38,6 +39,7 @@ to see the code please see the [authorization documentation from acd_cli](https:
 - `acd_cli_cache_path`    - Custom cache directory path.
 - `acd_cli_settings_path` - Custom settings path. _Default: ~/.cache/acd_cli_
 - `version`               - Version of acd_cli to install from pypi. _Default: '0.3.2'_
+- `remount`               - Add script and fstab entry to remount filesystem after reboots. _Default: true_
 
 #### Actions
 - `:mount`
